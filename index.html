@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>KazmaTalk 📻</title>
+</head>
+<body>
+  <h1>📡 KazmaTalk（トランシーバー）</h1>
+  <button id="ptt">🎙️ 押して話す</button>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    const socket = io("https://KazmaTalk.あなたのユーザー名.repl.co"); // ← 自分のURLに書き換えて！
+
+    const roomId = "default";
+    let localStream = null;
+    let connections = {};
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      localStream = stream;
+      localStream.getAudioTracks()[0].enabled = false; // 初期は無音
+    });
+
+    socket.on("connect", () => {
+      socket.emit("join", roomId);
+    });
+
+    socket.on("users-in-room", (users) => {
+      users.forEach(connectTo);
+    });
+
+    socket.on("user-joined", connectTo);
+
+    function connectTo(id) {
+      const pc = new RTCPeerConnection();
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      connections[id] = pc;
+
+      pc.onicecandidate = e => {
+        if (e.candidate) {
+          socket.emit("candidate", id, e.candidate);
+        }
+      };
+
+      pc.ontrack = e => {
+        const audio = new Audio();
+        audio.srcObject = e.streams[0];
+        audio.play();
+      };
+
+      pc.createOffer().then(offer => {
+        pc.setLocalDescription(offer);
+        socket.emit("offer", id, offer);
+      });
+    }
+
+    socket.on("offer", (id, offer) => {
+      const pc = new RTCPeerConnection();
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      connections[id] = pc;
+
+      pc.onicecandidate = e => {
+        if (e.candidate) {
+          socket.emit("candidate", id, e.candidate);
+        }
+      };
+
+      pc.ontrack = e => {
+        const audio = new Audio();
+        audio.srcObject = e.streams[0];
+        audio.play();
+      };
+
+      pc.setRemoteDescription(offer).then(() => {
+        return pc.createAnswer();
+      }).then(answer => {
+        pc.setLocalDescription(answer);
+        socket.emit("answer", id, answer);
+      });
+    });
+
+    socket.on("answer", (id, answer) => {
+      connections[id].setRemoteDescription(answer);
+    });
+
+    socket.on("candidate", (id, candidate) => {
+      connections[id].addIceCandidate(candidate);
+    });
+
+    document.getElementById("ptt").addEventListener("mousedown", () => {
+      if (localStream) localStream.getAudioTracks()[0].enabled = true;
+    });
+
+    document.getElementById("ptt").addEventListener("mouseup", () => {
+      if (localStream) localStream.getAudioTracks()[0].enabled = false;
+    });
+  </script>
+</body>
+</html>
